@@ -203,12 +203,12 @@ describe('@simpleworkjs/bao-conf', function() {
 			expect(conf).to.deep.equal({ app: { port: 3000 } });
 		});
 
-		it('throws if no token is available', async function() {
+		it('fail-soft if no token: leaves conf untouched and resolves', async function() {
 			delete process.env.VAULT_TOKEN;
-			let err;
-			try { await bao.init({ path: 'proxy', conf: {} }); } catch (e) { err = e; }
-			expect(err).to.be.an('error');
-			expect(err.message).to.match(/VAULT_TOKEN/);
+			const conf = { app: { port: 3000 } };
+			const merged = await bao.init({ path: 'proxy', conf });
+			expect(merged).to.equal(conf);
+			expect(conf).to.deep.equal({ app: { port: 3000 } });
 		});
 	});
 });

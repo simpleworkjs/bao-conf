@@ -25,7 +25,11 @@ const extend = require('extend');
  * Auth: OpenBao is addressed at `VAULT_ADDR` (default `http://openbao:8200`)
  * and authenticated with `VAULT_TOKEN`. There is deliberately **no root-token
  * fallback** — deployments mint scoped per-app tokens (see theta-env setup.sh)
- * and pass them via `VAULT_TOKEN`. Misconfiguration throws loudly.
+ * and pass them via `VAULT_TOKEN`. `init()` (the boot overlay) is **fail-soft**:
+ * if `VAULT_TOKEN` is unset or OpenBao is unreachable, it warns and leaves the
+ * file-loaded config in place so boot continues. The explicit `get`/`set`/
+ * `request` helpers, by contrast, throw on a missing token — they are
+ * intentional operations against OpenBao, not a boot-time overlay.
  */
 
 let configured = null; // { addr, token }
@@ -133,12 +137,25 @@ async function set(path, data, opts = {}) {
  * @param {string} [params.addr] Override `VAULT_ADDR`.
  * @param {string} [params.token] Override `VAULT_TOKEN`.
  * @returns {Promise<Object>} The merged `conf` object.
- * @throws {Error} if `path` or `conf` is omitted, or if no token is available.
+ * @throws {Error} if `path` or `conf` is omitted. **Fail-soft on a missing
+ *   token**: if `VAULT_TOKEN` is unset (OpenBao not configured for this
+ *   process — standalone Docker, bare metal, CI), `init()` warns and resolves
+ *   with `conf` unchanged rather than crashing boot.
  */
 async function init({ path, conf, addr, token } = {}) {
 	if (!conf) throw new Error("@simpleworkjs/bao-conf: init() requires a `conf` option (the @simpleworkjs/conf object).");
 	if (!path) throw new Error("@simpleworkjs/bao-conf: init() requires a `path` option (e.g. 'sso-manager', 'proxy').");
-	configure({ addr, token });
+	// Fail-soft on "OpenBao not configured": if no token is available there is
+	// nothing to overlay — this is the normal case for standalone Docker,
+	// bare metal, and CI test images that run without an OpenBao sidecar.
+	// Boot continues from the file-loaded config. (The explicit get/set/request
+	// helpers still throw on a missing token — only the boot overlay is soft.)
+	try {
+		configure({ addr, token });
+	} catch (err) {
+		console.warn(`@simpleworkjs/bao-conf: ${err.message} — skipping OpenBao overlay, continuing with file-loaded config.`);
+		return conf;
+	}
 	const vaultConf = await get(`${path}/conf`);
 	if (vaultConf) {
 		// Deep merge into the live conf object so every holder of the reference

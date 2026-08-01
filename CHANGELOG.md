@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-01
+
+### Fixed
+- **`init()` no longer crashes boot when `VAULT_TOKEN` is unset.** Previously
+  `init()` threw if no token was available, which made every deployment without
+  an OpenBao sidecar — standalone Docker, bare metal, and the CI test image —
+  exit(1) at boot (the app boots via `bin/www`, whose `.catch` calls
+  `process.exit(1)`). This contradicted the documented fail-soft contract. Now
+  `init()` warns and resolves with `conf` unchanged, so boot continues from the
+  file-loaded config. The explicit `get`/`set`/`request` helpers still throw on
+  a missing token — only the boot overlay is fail-soft. Docs/README updated to
+  match.
+
 ## [1.0.0] - 2026-08-01
 
 ### Added

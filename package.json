@@ -1,6 +1,6 @@
 {
   "name": "@simpleworkjs/bao-conf",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenBao/Vault KV-v2 secrets overlay for @simpleworkjs/conf — deep-merge boot secrets from OpenBao over the sync-loaded config object.",
   "main": "index.js",
   "types": "index.d.ts",

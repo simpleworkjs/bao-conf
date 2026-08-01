@@ -62,7 +62,7 @@
                     </div>
                     <div class="feature-card">
                         <h3>Scoped Tokens</h3>
-                        <p>No root-token fallback. <code>VAULT_TOKEN</code> is required, so misconfiguration is loud and least-privilege is the default.</p>
+                        <p>No root-token fallback. <code>VAULT_TOKEN</code> is required for explicit reads/writes; the boot-time <code>init</code> overlay is fail-soft when it is absent, so deployments without an OpenBao sidecar still boot.</p>
                     </div>
                     <div class="feature-card">
                         <h3>Low-Level Broker Hook</h3>
@@ -123,7 +123,7 @@ require('@simpleworkjs/bao-conf').init({ path: 'jump-host', conf }).then(() => {
                 <h2>API Reference</h2>
 
                 <h3><code>init({ path, conf, addr?, token? }) &rarr; Promise&lt;conf&gt;</code></h3>
-                <p>Fetch <code>secret/data/&lt;path&gt;/conf</code> and deep-merge it over <code>conf</code> in place. Fail-soft on error/404. Throws if <code>path</code>/<code>conf</code> are omitted or no token is available.</p>
+                <p>Fetch <code>secret/data/&lt;path&gt;/conf</code> and deep-merge it over <code>conf</code> in place. Fail-soft on error/404, and <strong>fail-soft on a missing <code>VAULT_TOKEN</code></strong> (standalone Docker, bare metal, CI with no OpenBao sidecar): warns and leaves <code>conf</code> untouched so boot continues. Throws only if <code>path</code>/<code>conf</code> are omitted. The explicit <code>get</code>/<code>set</code>/<code>request</code> helpers still throw on a missing token.</p>
 
                 <h3><code>get(path, opts?) &rarr; Promise&lt;object|null&gt;</code></h3>
                 <p>Read a KV-v2 secret at <code>secret/data/&lt;path&gt;</code>. Returns the inner data object, or <code>null</code> if absent / on error.</p>

@@ -104,7 +104,11 @@ resolved.
 ### `init({ path, conf, addr?, token? }) → Promise<conf>`
 
 Fetch `secret/data/<path>/conf` and deep-merge it over `conf` in place. Fail-soft
-on error/404. Throws if `path`/`conf` are omitted or no token is available.
+on error/404, and **fail-soft on a missing `VAULT_TOKEN`** (standalone Docker,
+bare metal, CI images with no OpenBao sidecar): warns and leaves `conf` untouched
+so boot continues from the file-loaded config. Throws only if `path`/`conf` are
+omitted. The explicit `get`/`set`/`request` helpers still throw on a missing
+token — they are intentional operations against OpenBao, not a boot-time overlay.
 
 ### `get(path, opts?) → Promise<object|null>`
 
