@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="OpenBao / Vault KV-v2 secrets overlay for @simpleworkjs/conf — deep-merge boot secrets from OpenBao over the sync-loaded config object">
+    <title>@simpleworkjs/bao-conf - OpenBao Secrets Overlay for @simpleworkjs/conf</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <h1>@simpleworkjs/bao-conf</h1>
+                <p class="tagline">OpenBao / Vault KV-v2 secrets overlay for @simpleworkjs/conf</p>
+                <div class="badges">
+                    <a href="https://www.npmjs.com/package/@simpleworkjs/bao-conf"><img src="https://img.shields.io/npm/v/@simpleworkjs/bao-conf.svg" alt="npm version"></a>
+                    <a href="https://github.com/simpleworkjs/bao-conf/actions"><img src="https://github.com/simpleworkjs/bao-conf/workflows/Tests/badge.svg" alt="Tests"></a>
+                    <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+                </div>
+                <div class="cta-buttons">
+                    <a href="#installation" class="btn btn-primary">Get Started</a>
+                    <a href="https://github.com/simpleworkjs/bao-conf" class="btn btn-secondary">View on GitHub</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <nav class="nav">
+        <div class="container">
+            <ul>
+                <li><a href="#features">Features</a></li>
+                <li><a href="#installation">Installation</a></li>
+                <li><a href="#quick-start">Quick Start</a></li>
+                <li><a href="#boot-order">Boot Order</a></li>
+                <li><a href="#api">API Reference</a></li>
+                <li><a href="#examples">Examples</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="main">
+        <div class="container">
+            <section id="features" class="section">
+                <h2>Features</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <h3>Async Overlay</h3>
+                        <p>Folds an async OpenBao KV-v2 fetch into @simpleworkjs/conf's synchronous, require-time config object.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Deep Merge</h3>
+                        <p>Deep-merges <code>secret/data/&lt;app&gt;/conf</code> over the live conf in place — overlay only the secrets, keep the rest.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Live Mutation</h3>
+                        <p>Call-time readers (<code>conf.ldap.bindPassword</code>) see the overlay automatically; no reload, no re-export.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Fail-Soft Boot</h3>
+                        <p>If OpenBao is unreachable or the path is absent, boot continues with the file-loaded config — never crashes on a missing overlay.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Scoped Tokens</h3>
+                        <p>No root-token fallback. <code>VAULT_TOKEN</code> is required, so misconfiguration is loud and least-privilege is the default.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Low-Level Broker Hook</h3>
+                        <p><code>request()</code> exposes the raw OpenBao API for server-side token/policy brokers (per-user &amp; per-app scoped tokens).</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="installation" class="section">
+                <h2>Installation</h2>
+                <pre><code>npm install --save @simpleworkjs/bao-conf @simpleworkjs/conf</code></pre>
+                <p>Requires Node.js &gt;= 18 (uses the global <code>fetch</code>).</p>
+            </section>
+
+            <section id="quick-start" class="section">
+                <h2>Quick Start</h2>
+                <p>After <code>@simpleworkjs/conf</code> has loaded, overlay secrets from OpenBao:</p>
+                <pre><code>const conf = require('@simpleworkjs/conf');
+const baoConf = require('@simpleworkjs/bao-conf');
+
+// Fetches secret/data/sso-manager/conf and deep-merges it into `conf`.
+await baoConf.init({ path: 'sso-manager', conf });
+
+console.log(conf.ldap.bindPassword);   // now the OpenBao value
+console.log(conf.oidc.clientSecret);   // now the OpenBao value</code></pre>
+                <p><code>init()</code> is fail-soft: if OpenBao is unreachable or the path is absent, it logs a warning, leaves <code>conf</code> untouched, and resolves. Keep your file-loaded config as a safe fallback.</p>
+            </section>
+
+            <section id="boot-order" class="section">
+                <h2>The Boot-Order Constraint</h2>
+                <p>Some code <strong>captures</strong> a secret at <code>require()</code> time rather than reading it at call time. The canonical example is an OIDC client built during <code>require('../models')</code>:</p>
+                <pre><code>// models/index.js — runs at require time
+const oidcClient = createOidcClient({ clientSecret: conf.oidc.clientSecret });</code></pre>
+                <p><code>init()</code> mutates <code>conf</code> <em>after</em> it returns, so a value already captured into a closure will <strong>not</strong> see the overlay. Ensure <code>init()</code> resolves before the capturing <code>require()</code> runs.</p>
+
+                <h3>Pattern A — defer <code>require('../app')</code> (transitive models)</h3>
+                <pre><code>const conf = require('@simpleworkjs/conf');
+const baoConf = require('@simpleworkjs/bao-conf');
+
+baoConf.init({ path: 'proxy', conf }).then(() => {
+  const app = require('../app');   // models + createOidcClient now see merged conf
+  const server = http.createServer(app);
+  server.listen(port);
+}).catch(err => { console.error('boot failed:', err); process.exit(1); });</code></pre>
+
+                <h3>Pattern B — gate an explicit <code>require('../models')</code></h3>
+                <pre><code>const conf = require('@simpleworkjs/conf');
+require('@simpleworkjs/bao-conf').init({ path: 'jump-host', conf }).then(() => {
+  require('../models');            // createOidcClient sees merged conf.oidc
+  const app = require('../app');
+  server.listen(webPort);
+  sshServer.start();
+});</code></pre>
+                <p>Values read at <em>call</em> time (e.g. <code>conf.ldap.bindPassword</code> inside a lookup) need no special handling — they see the overlay whenever it has resolved.</p>
+            </section>
+
+            <section id="api" class="section">
+                <h2>API Reference</h2>
+
+                <h3><code>init({ path, conf, addr?, token? }) &rarr; Promise&lt;conf&gt;</code></h3>
+                <p>Fetch <code>secret/data/&lt;path&gt;/conf</code> and deep-merge it over <code>conf</code> in place. Fail-soft on error/404. Throws if <code>path</code>/<code>conf</code> are omitted or no token is available.</p>
+
+                <h3><code>get(path, opts?) &rarr; Promise&lt;object|null&gt;</code></h3>
+                <p>Read a KV-v2 secret at <code>secret/data/&lt;path&gt;</code>. Returns the inner data object, or <code>null</code> if absent / on error.</p>
+
+                <h3><code>set(path, data, opts?) &rarr; Promise&lt;object&gt;</code></h3>
+                <p>Write a KV-v2 secret at <code>secret/data/&lt;path&gt;</code> (wrapped as <code>{ data }</code>). Throws on non-2xx. Used by bootstraps that write generated creds into OpenBao.</p>
+
+                <h3><code>request(method, vaultPath, body?, opts?) &rarr; Promise&lt;Response&gt;</code></h3>
+                <p>Low-level OpenBao API request below <code>/v1/</code>. Returns the raw <code>fetch</code> <code>Response</code>. Used by brokers that mint scoped tokens or write policies.</p>
+
+                <h3><code>configure({ addr?, token? }) &rarr; { addr, token }</code></h3>
+                <p>Resolve and cache the connection config from options or env. Called implicitly; exported for explicit setup. Throws if no token is available.</p>
+
+                <h3>Environment Variables</h3>
+                <table class="api-table">
+                    <thead>
+                        <tr>
+                            <th>Variable</th>
+                            <th>Description</th>
+                            <th>Default</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>VAULT_ADDR</code></td>
+                            <td>OpenBao API URL</td>
+                            <td><code>http://openbao:8200</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>VAULT_TOKEN</code></td>
+                            <td>OpenBao token (scoped — no root fallback)</td>
+                            <td><em>required</em></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="examples" class="section">
+                <h2>Examples</h2>
+
+                <h3>Bootstrap writing generated creds into OpenBao</h3>
+                <pre><code>const baoConf = require('@simpleworkjs/bao-conf');
+// BOOTSTRAP_VAULT_TOKEN has write policy on secret/proxy/conf etc.
+await baoConf.set('proxy/conf', { oauth: { clientId, clientSecret } });</code></pre>
+
+                <h3>A token/policy broker (server-side, scoped tokens)</h3>
+                <pre><code>const baoConf = require('@simpleworkjs/bao-conf');
+await baoConf.request('PUT', `sys/policies/acl/user-${uid}`, {
+  policy: `path "secret/users/${uid}/*" { capabilities = ["create","read","update","delete","list"] }`
+});
+const res = await baoConf.request('POST', 'auth/token/create/sso-broker', { policy: `user-${uid}` });
+const { auth } = await res.json();
+// auth.client_token is the per-user token — inject it as X-Vault-Token on proxied requests.</code></pre>
+            </section>
+
+            <section id="best-practices" class="section">
+                <h2>Best Practices</h2>
+                <ul class="best-practices-list">
+                    <li><strong>Mint scoped per-app tokens</strong> in setup/orchestration and pass them via <code>VAULT_TOKEN</code>. Never propagate the root token to application containers.</li>
+                    <li><strong>Call <code>init()</code> before any require-time capture</strong> of an overlaid secret.</li>
+                    <li><strong>Keep file-loaded config as a safe fallback</strong> — <code>init()</code> is fail-soft by design.</li>
+                    <li><strong>Fail-soft for boot config, fail-loud for writes</strong> — <code>init</code>/<code>get</code> resolve on error; <code>set</code> throws.</li>
+                    <li><strong>Deep-merge, don't replace</strong> — partial overlays (just the secrets) work without re-stating the whole config in OpenBao.</li>
+                </ul>
+            </section>
+
+            <section id="contributing" class="section">
+                <h2>Contributing</h2>
+                <p>Contributions are welcome! Please see our <a href="https://github.com/simpleworkjs/bao-conf">GitHub repository</a> for guidelines.</p>
+                <ol>
+                    <li>Fork the repository</li>
+                    <li>Create a feature branch: <code>git checkout -b feature/my-feature</code></li>
+                    <li>Make your changes and add tests</li>
+                    <li>Run tests: <code>npm test</code></li>
+                    <li>Commit your changes</li>
+                    <li>Push to the branch</li>
+                    <li>Submit a pull request</li>
+                </ol>
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>MIT © simpleworkjs | <a href="https://github.com/simpleworkjs/bao-conf">GitHub</a> | <a href="https://www.npmjs.com/package/@simpleworkjs/bao-conf">npm</a></p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

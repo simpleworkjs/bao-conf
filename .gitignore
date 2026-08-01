@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Coverage
+coverage/
+.c8/
+.nyc_output/
+*.lcov
+
+# Logs
+*.log
+npm-debug.log*
+
+# Pack artifacts
+*.tgz
+
+# dotenv
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
