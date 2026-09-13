@@ -33,6 +33,22 @@ const extend = require('extend');
  */
 
 let configured = null; // { addr, token }
+let warnedNotConfigured = false;
+
+// Report "no token configured" once per process rather than once per read.
+//
+// Every get() re-ran configure(), which threw the same error every time, and the
+// catch logged it in full -- so a deployment with no VAULT_TOKEN emitted one
+// identical multi-line error per secret read. On the theta-directory end-to-end
+// suite that was 108 copies of the same message per run, in PASSING runs as well
+// as failing ones, which is enough noise to hide the failure you are actually
+// looking for. The condition is worth saying once, loudly; it is not worth
+// saying again for every read that will fail for the same reason.
+function reportNotConfigured(err) {
+	if (warnedNotConfigured) return;
+	warnedNotConfigured = true;
+	console.error(`${err.message} (further reads will be skipped silently until it is set)`);
+}
 
 /**
  * Resolve and cache the OpenBao connection config from options or env.
@@ -47,10 +63,16 @@ function configure(opts = {}) {
 	const addr = (opts.addr || process.env.VAULT_ADDR || 'http://openbao:8200').replace(/\/+$/, '');
 	const token = opts.token || process.env.VAULT_TOKEN;
 	if (!token) {
-		throw new Error(
+		const err = new Error(
 			'@simpleworkjs/bao-conf: VAULT_TOKEN is not set. Pass a `token` option ' +
 			'or set the VAULT_TOKEN env var to a scoped OpenBao token (not root).'
 		);
+		// Tagged so callers can tell a CONFIGURATION fault from a per-read one.
+		// The distinction matters for logging: a missing token is one condition
+		// that will be true for every read for the life of the process, not a
+		// hundred separate failures.
+		err.code = 'BAO_NOT_CONFIGURED';
+		throw err;
 	}
 	configured = { addr, token };
 	return configured;
@@ -103,7 +125,11 @@ async function get(path, opts = {}) {
 		const text = await res.text().catch(() => '');
 		console.error(`@simpleworkjs/bao-conf: GET secret/data/${path} returned ${res.status} ${text}`);
 	} catch (err) {
-		console.error(`@simpleworkjs/bao-conf: error reading secret/data/${path}:`, err);
+		if (err && err.code === 'BAO_NOT_CONFIGURED') {
+			reportNotConfigured(err);
+		} else {
+			console.error(`@simpleworkjs/bao-conf: error reading secret/data/${path}:`, err);
+		}
 	}
 	return null;
 }
@@ -167,4 +193,11 @@ async function init({ path, conf, addr, token } = {}) {
 	return conf;
 }
 
-module.exports = { init, get, set, request, configure };
+// _reset is a test seam: drops the cached connection config and the one-time
+// warning latch so a suite can exercise the unconfigured path more than once.
+function _reset() {
+	configured = null;
+	warnedNotConfigured = false;
+}
+
+module.exports = { init, get, set, request, configure, _reset };
