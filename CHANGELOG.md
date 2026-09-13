@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-13
+
+### Fixed
+- **An unset `VAULT_TOKEN` is now reported once, not once per read.** Every
+  `get()` re-ran `configure()`, which threw the same error every time, and the
+  catch logged it in full — so a deployment with no token emitted one identical
+  multi-line error per secret read. On theta-directory's multi-site end-to-end
+  suite that came to **108 copies of the same message per run**, in passing runs
+  as much as failing ones, which is enough noise to bury the failure you are
+  actually looking for (it did: finding a real E2E failure meant filtering these
+  out first). The condition is a configuration fault that will be true for the
+  life of the process, so it is now stated once — and the message says that
+  further reads will be skipped silently, so the quiet afterwards is expected
+  rather than mysterious.
+
+  Behaviour is otherwise unchanged: reads still fail soft and resolve to `null`.
+  A genuine per-read error (network failure, a 500 from OpenBao) is a separate
+  event each time and is still logged every time.
+
+### Added
+- `_reset()` test seam: drops the cached connection config and the one-time
+  warning latch.
+
 ## [1.0.1] - 2026-08-01
 
 ### Fixed

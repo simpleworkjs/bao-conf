@@ -211,4 +211,59 @@ describe('@simpleworkjs/bao-conf', function() {
 			expect(conf).to.deep.equal({ app: { port: 3000 } });
 		});
 	});
+
+	describe('an unset token is reported once, not once per read', function() {
+		// Every get() re-ran configure(), which threw the same error every time,
+		// and the catch logged it in full -- so a deployment with no VAULT_TOKEN
+		// emitted one identical error per secret read. On theta-directory's
+		// end-to-end suite that was 108 copies of the same message per run, in
+		// passing runs as much as failing ones, which is enough noise to bury the
+		// failure you are looking for.
+		let logged;
+		let originalError;
+
+		beforeEach(function() {
+			delete process.env.VAULT_TOKEN;
+			bao._reset();
+			logged = [];
+			originalError = console.error;
+			console.error = (...args) => logged.push(args.join(' '));
+		});
+
+		afterEach(function() {
+			console.error = originalError;
+			bao._reset();
+		});
+
+		it('logs the condition once across many reads, and still fails soft', async function() {
+			const results = [];
+			for (let i = 0; i < 10; i++) {
+				results.push(await bao.get(`some/path-${i}`));
+			}
+
+			// Fail-soft is unchanged: every read still resolves to null.
+			expect(results).to.deep.equal(new Array(10).fill(null));
+
+			const tokenWarnings = logged.filter(line => /VAULT_TOKEN is not set/.test(line));
+			expect(tokenWarnings).to.have.lengthOf(1);
+			// And it says what happens next, so the silence afterwards is expected
+			// rather than mysterious.
+			expect(tokenWarnings[0]).to.match(/further reads will be skipped silently/);
+		});
+
+		it('still reports a genuine per-read error every time', async function() {
+			// The quieting is specific to the configuration fault. A read that
+			// fails for its own reason is a separate event each time and must
+			// keep saying so.
+			process.env.VAULT_TOKEN = 'test-token';
+			bao._reset();
+			global.fetch = mockFetch({ 'GET *': 'throw' });
+
+			await bao.get('some/path');
+			await bao.get('other/path');
+
+			const readErrors = logged.filter(line => /error reading secret\/data\//.test(line));
+			expect(readErrors).to.have.lengthOf(2);
+		});
+	});
 });
